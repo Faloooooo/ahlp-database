@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import requests
 import json
 from datetime import datetime
@@ -13,6 +12,7 @@ SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxITTacKEMsGtc4V0aJOlJPnmc
 SHEET_ID = "1U0zYOYaiUNMd__XGHuF72wIO6JixM5IlaXN-OcIlZH0"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid="
 
+# الأقسام البرمجية
 GIDS = {
     'fuel': '1077908569',
     'gas': '578874363',
@@ -27,31 +27,21 @@ def send_to_google(sheet_name, values):
         return response.status_code == 200
     except: return False
 
-def load_data(name):
-    try:
-        df = pd.read_csv(BASE_URL + GIDS[name])
-        df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-        return df
-    except: return pd.DataFrame()
-
 # --- حماية الدخول ---
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if not st.session_state.authenticated:
-    st.title("🔐 دخول نظام AHLP")
-    pwd = st.text_input("أدخل كلمة المرور", type="password")
-    if st.button("دخول"):
-        if pwd == "AHLP2026":
+    st.title("🔐 نظام AHLP - تسجيل الدخول")
+    if st.text_input("كلمة المرور", type="password") == "AHLP2026":
+        if st.button("دخول"):
             st.session_state.authenticated = True
             st.rerun()
-        else: st.error("كلمة المرور خاطئة")
     st.stop()
 
 # --- القائمة الرئيسية ---
-st.sidebar.title(f"مرحباً بك، {datetime.now().strftime('%Y-%m-%d')}")
-mode = st.sidebar.radio("اختر المهمة:", ["📊 لوحة التحكم والتقارير", "✍️ إدخال بيانات جديدة"])
+mode = st.sidebar.radio("اختر المهمة:", ["📊 التقارير والعرض", "✍️ إدخال بيانات جديدة"])
 
 if mode == "✍️ إدخال بيانات جديدة":
-    category = st.selectbox("القسم:", ["المازوت", "الغاز", "المياه", "المولدات (1-5)", "كهرباء الدولة"])
+    category = st.selectbox("القسم:", ["المازوت", "الغاز", "المياه", "المولدات", "كهرباء الدولة"])
     
     with st.form("main_form", clear_on_submit=True):
         if category == "المازوت":
@@ -63,44 +53,39 @@ if mode == "✍️ إدخال بيانات جديدة":
             s_name = "Gas_Data"
 
         elif category == "المياه":
-            vals = [st.number_input("قراءة عداد المياه m³")]
+            c1, c2 = st.columns(2)
+            reading = c1.number_input("قراءة عداد الدولة m³")
+            truck_count = c2.number_input("عدد صهاريج المياه (Trucks)", step=1)
+            truck_size = c1.number_input("حجم الصهريج m³")
+            truck_cost = c2.number_input("تكلفة الصهاريج USD")
+            bill_total = c1.number_input("قيمة فاتورة الدولة USD")
+            other_fees = c2.number_input("رسوم مياه أخرى USD")
+            vals = [reading, truck_count, truck_size, truck_cost, bill_total, other_fees]
             s_name = "Water_Data" 
 
-        elif category == "المولدات (1-5)":
-            st.info("أدخل قراءة العداد (kWh) وساعات العمل (SMU) لكل مولد")
+        elif category == "المولدات":
+            st.info("إدخال قراءات المولدات (1-5)")
             c1, c2 = st.columns(2)
             v = []
             for i in range(1, 6):
-                v.append(c1.number_input(f"المولد {i} - kWh", key=f"k{i}"))
-                v.append(c2.number_input(f"المولد {i} - SMU", key=f"s{i}"))
+                v.append(c1.number_input(f"مولد {i} - kWh", key=f"k{i}"))
+                v.append(c2.number_input(f"مولد {i} - SMU", key=f"s{i}"))
             vals = v
             s_name = "Generators_kwh"
             
         elif category == "كهرباء الدولة":
-            vals = [st.number_input("عداد كهرباء الدولة الرئيسي (kWh)")]
+            c1, c2 = st.columns(2)
+            m1 = c1.number_input("عداد 1 (EDL 1)")
+            m2 = c2.number_input("عداد 2 (EDL 2)")
+            m3 = c1.number_input("عداد 3 (EDL 3)")
+            rehab = c2.number_input("رسوم تأهيل USD")
+            losses = c1.number_input("رسوم هدر USD")
+            sub = c2.number_input("اشتراك USD")
+            vat = c1.number_input("VAT USD")
+            total = c2.number_input("إجمالي الفاتورة USD")
+            vals = [m1, m2, m3, rehab, losses, sub, vat, total]
             s_name = "Electricity_Accrual"
 
         if st.form_submit_button("إرسال البيانات"):
-            if send_to_google(s_name, vals): st.success("✅ تم الحفظ بنجاح")
+            if send_to_google(s_name, vals): st.success(f"✅ تم حفظ بيانات {category} بنجاح")
             else: st.error("❌ فشل الاتصال بالسيرفر")
-
-else: # لوحة التحكم والتقارير
-    st.header("📊 مراجعة القراءات والتقارير")
-    tab_fuel, tab_gen, tab_others = st.tabs(["⛽ مخزون الوقود", "⚡ المولدات", "💧 الغاز والمياه والكهرباء"])
-    
-    with tab_fuel:
-        df_f = load_data('fuel')
-        if not df_f.empty:
-            st.metric("آخر قراءة للطوارئ", f"{df_f.iloc[-1]['Main_Tank_cm'] * 107:,.0f} L")
-            st.line_chart(df_f.set_index('Timestamp')['Main_Tank_cm'])
-
-    with tab_gen:
-        df_g = load_data('generators')
-        if not df_g.empty:
-            st.write("آخر سجلات المولدات الخمسة:")
-            st.dataframe(df_g.tail(10))
-
-    with tab_others:
-        c1, c2, c3 = st.columns(3)
-        # هنا يمكن إضافة ملخص سريع لبقية الأقسام
-        st.info("اختر من القائمة الجانبية لإضافة بيانات جديدة أو تصفح الجداول أعلاه.")
