@@ -32,7 +32,7 @@ if not st.session_state.authenticated:
 mode = st.sidebar.radio("اختر المهمة:", ["📊 ملخص الاستهلاك والتقارير", "✍️ إدخال بيانات جديدة"])
 
 if mode == "✍️ إدخال بيانات جديدة":
-    category = st.selectbox("القسم:", ["المازوت (قراءات وشراء)", "الغاز (قراءات وشراء)", "المياه", "المولدات", "كهرباء الدولة"])
+    category = st.selectbox("القسم:", ["المازوت (قراءات وشراء)", "الغاز (خزان وقوارير)", "المياه", "المولدات", "كهرباء الدولة"])
     
     with st.form("main_form", clear_on_submit=True):
         if category == "المازوت (قراءات وشراء)":
@@ -41,46 +41,42 @@ if mode == "✍️ إدخال بيانات جديدة":
             rec = st.number_input("خزان الاستقبال")
             daily = st.number_input("خزان المولدات (اليومي)")
             boil = st.number_input("خزان البويلر")
-            
             st.markdown("---")
-            st.subheader("💰 عمليات شراء مازوت جديدة")
-            bought_ltr = st.number_input("كمية المازوت المشتراة (Liters)")
-            price_usd = st.number_input("إجمالي تكلفة الشراء (USD)")
-            # نرسل: القراءات الاربعة، ثم الكمية المشتراة، ثم السعر
+            st.subheader("💰 شراء مازوت جديد")
+            bought_ltr = st.number_input("الكمية المشتراة (Liters)")
+            price_usd = st.number_input("إجمالي التكلفة (USD)")
             vals = [main, rec, daily, boil, bought_ltr, price_usd]
             s_name = "Fuel_Data"
         
-        elif category == "الغاز (قراءات وشراء)":
-            st.subheader("🔥 مراقبة الغاز")
-            gas_pct = st.number_input("نسبة المخزون الحالي %")
+        elif category == "الغاز (خزان وقوارير)":
+            st.subheader("🔥 مراقبة الخزان المركزي")
+            gas_pct = st.number_input("نسبة الخزان الحالي %")
+            gas_bought = st.number_input("شراء غاز للخزان (Liters)")
+            
             st.markdown("---")
-            st.subheader("🛒 شراء غاز جديد")
-            gas_bought = st.number_input("كمية الغاز المشتراة (Liters)")
-            gas_price = st.number_input("سعر شراء الغاز (USD)")
-            vals = [gas_pct, gas_bought, gas_price]
+            st.subheader("🎈 قوارير الغاز (Cylinders)")
+            gas_cyl_count = st.number_input("عدد القوارير المشتراة (Qty)", step=1)
+            gas_cyl_price = st.number_input("سعر القوارير (USD)")
+            
+            # ترتيب الإرسال: نسبة الخزان، شراء لترات، عدد القوارير، سعر القوارير
+            vals = [gas_pct, gas_bought, gas_cyl_count, gas_cyl_price]
             s_name = "Gas_Data"
 
         elif category == "المياه":
-            st.subheader("💧 مياه الدولة")
+            st.subheader("💧 مياه الدولة والصهاريج")
             city_read = st.number_input("عداد مياه الدولة m³")
-            city_bill = st.number_input("فاتورة مياه الدولة USD")
-            
-            st.markdown("---")
-            st.subheader("🚚 صهاريج مياه إضافية")
-            truck_read = st.number_input("عداد المياه المشتراة m³")
-            truck_count = st.number_input("عدد الصهاريج", step=1)
+            truck_read = st.number_input("عداد الصهاريج m³")
             truck_cost = st.number_input("تكلفة الصهاريج USD")
-            
-            vals = [city_read, truck_count, 0, truck_cost, city_bill, 0, truck_read]
+            vals = [city_read, 0, 0, truck_cost, 0, 0, truck_read]
             s_name = "Water_Data" 
 
         elif category == "المولدات":
-            st.subheader("⚡ قراءات المولدات (1-5)")
             v = []
             for i in range(1, 6):
+                st.subheader(f"⚡ مولد {i}")
                 c1, c2 = st.columns(2)
-                v.append(c1.number_input(f"عداد kWh {i}", key=f"k{i}"))
-                v.append(c2.number_input(f"ساعة SMU {i}", key=f"s{i}"))
+                v.append(c1.number_input(f"kWh {i}", key=f"k{i}"))
+                v.append(c2.number_input(f"SMU {i}", key=f"s{i}"))
             vals = v
             s_name = "Generators_kwh"
             
@@ -92,11 +88,5 @@ if mode == "✍️ إدخال بيانات جديدة":
             s_name = "Electricity_Accrual"
 
         if st.form_submit_button("حفظ وإرسال"):
-            if send_to_google(s_name, vals): st.success("تم الحفظ بنجاح")
-            else: st.error("فشل الاتصال")
-
-else:
-    st.header("📊 ملخص الاستهلاك التلقائي")
-    st.info("سيقوم النظام هنا بمقارنة آخر قراءتين تم إدخالهما ليعطيك الصرف الفعلي.")
-    # ملاحظة: سنقوم في الخطوة القادمة ببرمجة دالة (Calculate Consumption) 
-    # التي تأخذ آخر سطرين من الشيت وتطرحهما من بعضهما.
+            if send_to_google(s_name, vals): st.success("✅ تم حفظ البيانات بنجاح")
+            else: st.error("❌ فشل في الإرسال")
