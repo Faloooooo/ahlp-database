@@ -8,7 +8,7 @@ from datetime import datetime
 # إعدادات الصفحة
 st.set_page_config(page_title="AHLP Management System", layout="wide", page_icon="🏨")
 
-# الروابط والإعدادات
+# الروابط
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxITTacKEMsGtc4V0aJOlJPnmcXEZrnyfM95tVOUWzcL1U7T8DYMWfEyEvyIwjyhGmW/exec"
 SHEET_ID = "1U0zYOYaiUNMd__XGHuF72wIO6JixM5IlaXN-OcIlZH0"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid="
@@ -21,91 +21,86 @@ GIDS = {
     'generators': '1679289485'
 }
 
-# دالة إرسال البيانات
 def send_to_google(sheet_name, values):
     try:
         response = requests.post(f"{SCRIPT_URL}?sheet={sheet_name}", data=json.dumps({"values": values}))
         return response.status_code == 200
-    except:
-        return False
+    except: return False
 
-# دالة جلب البيانات
 def load_data(name):
     try:
         df = pd.read_csv(BASE_URL + GIDS[name])
         df['Timestamp'] = pd.to_datetime(df['Timestamp'])
         return df
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
-# --- حماية التطبيق بكلمة مرور ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
+# --- حماية الدخول ---
+if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if not st.session_state.authenticated:
-    st.title("🔐 تسجيل الدخول - AHLP")
+    st.title("🔐 دخول نظام AHLP")
     pwd = st.text_input("أدخل كلمة المرور", type="password")
     if st.button("دخول"):
-        if pwd == "AHLP2026":  # يمكنك تغيير كلمة السر هنا
+        if pwd == "AHLP2026":
             st.session_state.authenticated = True
             st.rerun()
-        else:
-            st.error("كلمة المرور خاطئة")
+        else: st.error("كلمة المرور خاطئة")
     st.stop()
 
-# --- الواجهة الرئيسية بعد الدخول ---
-st.sidebar.title("🏨 نظام AHLP المتكامل")
-mode = st.sidebar.selectbox("الوضع:", ["📊 لوحة التحكم والتقارير", "✍️ إدخال بيانات جديدة"])
+# --- القائمة الرئيسية ---
+st.sidebar.title(f"مرحباً بك، {datetime.now().strftime('%Y-%m-%d')}")
+mode = st.sidebar.radio("اختر المهمة:", ["📊 لوحة التحكم والتقارير", "✍️ إدخال بيانات جديدة"])
 
 if mode == "✍️ إدخال بيانات جديدة":
-    category = st.selectbox("اختر القسم المراد تعبئته:", ["المازوت", "الغاز والمياه", "المولدات"])
+    category = st.selectbox("القسم:", ["المازوت", "الغاز", "المياه", "المولدات (1-5)", "كهرباء الدولة"])
     
-    with st.form("entry_form"):
+    with st.form("main_form", clear_on_submit=True):
         if category == "المازوت":
-            main = st.number_input("خزان الطوارئ (cm)", 0.0)
-            rec = st.number_input("خزان الاستقبال (cm)", 0.0)
-            daily = st.number_input("خزان المولدات (cm)", 0.0)
-            boil = st.number_input("خزان البويلر (cm)", 0.0)
-            price = st.number_input("سعر المازوت المشتراة (إن وجد)", 0.0)
-            vals = [main, rec, daily, boil, 0, price] # ترتيب الأعمدة في الشيت
+            vals = [st.number_input("الطوارئ (cm)"), st.number_input("الاستقبال (cm)"), st.number_input("المولدات (cm)"), st.number_input("البويلر (cm)"), 0, st.number_input("السعر USD")]
             s_name = "Fuel_Data"
-            
-        elif category == "المولدات":
-            cat_kwh = st.number_input("عداد CAT (kWh)", 0.0)
-            cat_smu = st.number_input("ساعة CAT (SMU)", 0.0)
-            perk_kwh = st.number_input("عداد Perkins (kWh)", 0.0)
-            perk_smu = st.number_input("ساعة Perkins (SMU)", 0.0)
-            vals = [cat_kwh, cat_smu, perk_kwh, perk_smu]
-            s_name = "Generators_kwh"
+        
+        elif category == "الغاز":
+            vals = [st.number_input("نسبة تخزين الغاز %")]
+            s_name = "Gas_Data"
 
-        if st.form_submit_button("حفظ البيانات في السجل"):
-            if send_to_google(s_name, vals):
-                st.success("✅ تم الحفظ بنجاح في غوغل شيت")
-            else:
-                st.error("❌ حدث خطأ في الاتصال")
+        elif category == "المياه":
+            vals = [st.number_input("قراءة عداد المياه m³")]
+            s_name = "Water_Data" 
+
+        elif category == "المولدات (1-5)":
+            st.info("أدخل قراءة العداد (kWh) وساعات العمل (SMU) لكل مولد")
+            c1, c2 = st.columns(2)
+            v = []
+            for i in range(1, 6):
+                v.append(c1.number_input(f"المولد {i} - kWh", key=f"k{i}"))
+                v.append(c2.number_input(f"المولد {i} - SMU", key=f"s{i}"))
+            vals = v
+            s_name = "Generators_kwh"
+            
+        elif category == "كهرباء الدولة":
+            vals = [st.number_input("عداد كهرباء الدولة الرئيسي (kWh)")]
+            s_name = "Electricity_Accrual"
+
+        if st.form_submit_button("إرسال البيانات"):
+            if send_to_google(s_name, vals): st.success("✅ تم الحفظ بنجاح")
+            else: st.error("❌ فشل الاتصال بالسيرفر")
 
 else: # لوحة التحكم والتقارير
-    st.sidebar.subheader("📅 فلترة التاريخ")
-    start = st.sidebar.date_input("من", datetime(2025, 1, 1))
-    end = st.sidebar.date_input("إلى", datetime.now())
+    st.header("📊 مراجعة القراءات والتقارير")
+    tab_fuel, tab_gen, tab_others = st.tabs(["⛽ مخزون الوقود", "⚡ المولدات", "💧 الغاز والمياه والكهرباء"])
     
-    tab1, tab2 = st.tabs(["⛽ مخزون المازوت", "⚡ استهلاك الطاقة"])
-    
-    with tab1:
+    with tab_fuel:
         df_f = load_data('fuel')
         if not df_f.empty:
-            # فلترة حسب التاريخ
-            df_f = df_f[(df_f['Timestamp'].dt.date >= start) & (df_f['Timestamp'].dt.date <= end)]
-            last = df_f.iloc[-1]
-            t_main = last['Main_Tank_cm'] * 107
-            t_total = (last['Main_Tank_cm']*107) + (last['Daily_Tank_cm']*31.26)
-            
-            c1, c2 = st.columns(2)
-            c1.metric("المخزون الإجمالي الحالي", f"{t_total:,.0f} L")
-            c2.metric("خزان الطوارئ الرئيسي", f"{t_main:,.0f} L")
-            
-            fig = px.area(df_f, x='Timestamp', y='Main_Tank_cm', title="تذبذب مستوى المازوت الرئيسي")
-            st.plotly_chart(fig, use_container_width=True)
+            st.metric("آخر قراءة للطوارئ", f"{df_f.iloc[-1]['Main_Tank_cm'] * 107:,.0f} L")
+            st.line_chart(df_f.set_index('Timestamp')['Main_Tank_cm'])
 
-    with tab2:
-        st.write("تقارير المولدات وكفاءة الاستهلاك ستظهر هنا بناءً على المدخلات.")
+    with tab_gen:
+        df_g = load_data('generators')
+        if not df_g.empty:
+            st.write("آخر سجلات المولدات الخمسة:")
+            st.dataframe(df_g.tail(10))
+
+    with tab_others:
+        c1, c2, c3 = st.columns(3)
+        # هنا يمكن إضافة ملخص سريع لبقية الأقسام
+        st.info("اختر من القائمة الجانبية لإضافة بيانات جديدة أو تصفح الجداول أعلاه.")
