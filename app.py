@@ -5,21 +5,12 @@ import json
 from datetime import datetime
 
 # إعدادات الصفحة
-st.set_page_config(page_title="AHLP Management System", layout="wide", page_icon="🏨")
+st.set_page_config(page_title="AHLP Management System", layout="centered", page_icon="🏨")
 
 # الروابط
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxITTacKEMsGtc4V0aJOlJPnmcXEZrnyfM95tVOUWzcL1U7T8DYMWfEyEvyIwjyhGmW/exec"
 SHEET_ID = "1U0zYOYaiUNMd__XGHuF72wIO6JixM5IlaXN-OcIlZH0"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid="
-
-# الأقسام البرمجية
-GIDS = {
-    'fuel': '1077908569',
-    'gas': '578874363',
-    'water': '423939923',
-    'electricity': '1588872380',
-    'generators': '1679289485'
-}
 
 def send_to_google(sheet_name, values):
     try:
@@ -45,47 +36,67 @@ if mode == "✍️ إدخال بيانات جديدة":
     
     with st.form("main_form", clear_on_submit=True):
         if category == "المازوت":
-            vals = [st.number_input("الطوارئ (cm)"), st.number_input("الاستقبال (cm)"), st.number_input("المولدات (cm)"), st.number_input("البويلر (cm)"), 0, st.number_input("السعر USD")]
+            st.subheader("⛽ قراءات المازوت")
+            main = st.number_input("خزان الطوارئ (cm)")
+            rec = st.number_input("خزان الاستقبال (cm)")
+            daily = st.number_input("خزان المولدات (cm)")
+            boil = st.number_input("خزان البويلر (cm)")
+            price = st.number_input("السعر USD")
+            vals = [main, rec, daily, boil, 0, price]
             s_name = "Fuel_Data"
         
         elif category == "الغاز":
-            vals = [st.number_input("نسبة تخزين الغاز %")]
+            st.subheader("🔥 قراءة الغاز")
+            gas_pct = st.number_input("نسبة تخزين الغاز %")
+            vals = [gas_pct]
             s_name = "Gas_Data"
 
         elif category == "المياه":
-            c1, c2 = st.columns(2)
-            reading = c1.number_input("قراءة عداد الدولة m³")
-            truck_count = c2.number_input("عدد صهاريج المياه (Trucks)", step=1)
-            truck_size = c1.number_input("حجم الصهريج m³")
-            truck_cost = c2.number_input("تكلفة الصهاريج USD")
-            bill_total = c1.number_input("قيمة فاتورة الدولة USD")
-            other_fees = c2.number_input("رسوم مياه أخرى USD")
-            vals = [reading, truck_count, truck_size, truck_cost, bill_total, other_fees]
+            st.subheader("💧 مياه الدولة")
+            city_read = st.number_input("عداد مياه الدولة m³")
+            city_bill = st.number_input("قيمة فاتورة الدولة USD")
+            city_fees = st.number_input("رسوم مياه أخرى USD")
+            
+            st.markdown("---")
+            st.subheader("🚚 صهاريج المياه (Extra)")
+            truck_read = st.number_input("عداد المياه المشتراة (الخاص بالصهاريج) m³")
+            truck_count = st.number_input("عدد الصهاريج (Truck Count)", step=1)
+            truck_size = st.number_input("حجم الصهريج الواحد m³")
+            truck_cost = st.number_input("إجمالي تكلفة الصهاريج USD")
+            
+            vals = [city_read, truck_count, truck_size, truck_cost, city_bill, city_fees, truck_read]
             s_name = "Water_Data" 
 
         elif category == "المولدات":
-            st.info("إدخال قراءات المولدات (1-5)")
-            c1, c2 = st.columns(2)
+            st.subheader("⚡ قراءات المولدات الخمسة")
             v = []
             for i in range(1, 6):
-                v.append(c1.number_input(f"مولد {i} - kWh", key=f"k{i}"))
-                v.append(c2.number_input(f"مولد {i} - SMU", key=f"s{i}"))
+                st.markdown(f"**المولد رقم {i}**")
+                v.append(st.number_input(f"عداد kWh - مولد {i}", key=f"k{i}"))
+                v.append(st.number_input(f"ساعة SMU - مولد {i}", key=f"s{i}"))
             vals = v
             s_name = "Generators_kwh"
             
         elif category == "كهرباء الدولة":
-            c1, c2 = st.columns(2)
-            m1 = c1.number_input("عداد 1 (EDL 1)")
-            m2 = c2.number_input("عداد 2 (EDL 2)")
-            m3 = c1.number_input("عداد 3 (EDL 3)")
-            rehab = c2.number_input("رسوم تأهيل USD")
-            losses = c1.number_input("رسوم هدر USD")
-            sub = c2.number_input("اشتراك USD")
-            vat = c1.number_input("VAT USD")
-            total = c2.number_input("إجمالي الفاتورة USD")
-            vals = [m1, m2, m3, rehab, losses, sub, vat, total]
+            st.subheader("🔌 عدادات الدولة (EDL)")
+            edl1 = st.number_input("EDL 1 - ليل")
+            edl2 = st.number_input("EDL 2 - ذروة")
+            edl3 = st.number_input("EDL 3 - نهار")
+            
+            st.markdown("---")
+            st.subheader("💸 تفاصيل الفاتورة")
+            rehab = st.number_input("رسوم تأهيل USD")
+            losses = st.number_input("رسوم هدر USD")
+            sub = st.number_input("اشتراك USD")
+            vat = st.number_input("VAT USD")
+            total = st.number_input("إجمالي الفاتورة USD")
+            
+            vals = [edl1, edl2, edl3, rehab, losses, sub, vat, total]
             s_name = "Electricity_Accrual"
 
         if st.form_submit_button("إرسال البيانات"):
             if send_to_google(s_name, vals): st.success(f"✅ تم حفظ بيانات {category} بنجاح")
             else: st.error("❌ فشل الاتصال بالسيرفر")
+
+else:
+    st.info("لوحة التقارير قيد التطوير بناءً على بياناتك الجديدة.")
