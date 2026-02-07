@@ -14,20 +14,18 @@ BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv
 
 GIDS = {'fuel': '1077908569', 'gas': '578874363', 'water': '423939923', 'electricity': '1588872380', 'generators': '1679289485'}
 
-# معاملات التحويل الدقيقة التي زودتني بها
-CONV = {
-    'main': 107.22,
-    'rec': 37.6572,
-    'daily': 31.26,
-    'boil': 37.6572
-}
+# معاملات التحويل الدقيقة (1 سم = كم لتر)
+CONV = {'main': 107.22, 'rec': 37.6572, 'daily': 31.26, 'boil': 37.6572}
 
 def load_data(name):
     try:
         df = pd.read_csv(BASE_URL + GIDS[name])
-        df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+        df.columns = df.columns.str.strip() # تنظيف أسماء الأعمدة من الفراغات
+        if 'Timestamp' in df.columns:
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
         return df
-    except: return pd.DataFrame()
+    except Exception as e:
+        return pd.DataFrame()
 
 def send_to_google(sheet_name, values):
     try:
@@ -39,39 +37,53 @@ def send_to_google(sheet_name, values):
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if not st.session_state.authenticated:
     st.title("🔐 نظام AHLP - تسجيل الدخول")
-    if st.text_input("كلمة المرور", type="password") == "AHLP2026":
+    if st.text_input("كلمة المرور", type="password", key="login_pwd") == "AHLP2026":
         if st.button("دخول"):
             st.session_state.authenticated = True
             st.rerun()
     st.stop()
 
 # --- القائمة الرئيسية ---
-mode = st.sidebar.radio("اختر المهمة:", ["📊 التقارير الذكية", "✍️ إدخال بيانات جديدة"])
+mode = st.sidebar.radio("اختر المهمة:", ["📊 ملخص التقارير", "✍️ إدخال بيانات جديدة"])
 
 if mode == "✍️ إدخال بيانات جديدة":
-    category = st.selectbox("القسم:", ["المازوت (قراءات وشراء)", "الغاز (خزان وقوارير)", "المياه", "المولدات", "كهرباء الدولة"])
+    category = st.selectbox("القسم:", ["المازوت", "الغاز", "المياه", "المولدات", "كهرباء الدولة"])
     with st.form("main_form", clear_on_submit=True):
-        if category == "المازوت (قراءات وشراء)":
+        if category == "المازوت":
             st.subheader("⛽ جرد الخزانات (cm)")
             main = st.number_input("خزان الطوارئ الرئيسي")
             rec = st.number_input("خزان الاستقبال")
-            daily = st.number_input("خزان المولدات (اليومي)")
+            daily = st.number_input("خزان المولدات")
             boil = st.number_input("خزان البويلر")
             st.markdown("---")
-            st.subheader("💰 شراء مازوت جديد")
-            bought_ltr = st.number_input("الكمية المشتراة (Liters)")
-            price_usd = st.number_input("إجمالي التكلفة (USD)")
-            vals = [main, rec, daily, boil, bought_ltr, price_usd]
-            s_name = "Fuel_Data"
+            st.subheader("💰 مشتريات جديدة")
+            bought = st.number_input("الكمية المشتراة (Liters)")
+            price = st.number_input("التكلفة (USD)")
+            vals, s_name = [main, rec, daily, boil, bought, price], "Fuel_Data"
         
-        elif category == "الغاز (خزان وقوارير)":
-            st.subheader("🔥 مراقبة الغاز")
-            vals = [st.number_input("نسبة الخزان %"), st.number_input("شراء لترات"), st.number_input("عدد القوارير"), st.number_input("سعر القوارير")]
-            s_name = "Gas_Data"
+        elif category == "الغاز":
+            st.subheader("🔥 الخزان المركزي والقوارير")
+            vals, s_name = [st.number_input("نسبة الخزان %"), st.number_input("لترات مشتراة"), st.number_input("عدد القوارير"), st.number_input("سعر القوارير")], "Gas_Data"
 
         elif category == "المياه":
-            st.subheader("💧 المياه")
-            vals = [st.number_input("عداد مياه الدولة m³"), st.number_input("عدد الصهاريج"), st.number_input("حجم الصهريج"), st.number_input("تكلفة الصهاريج"), st.number_input("فاتورة الدولة"), st.number_input("رسوم أخرى"), st.number_input("عداد الصهاريج m³")]
+            # --- مياه الدولة في حاوية منفصلة ---
+            with st.container():
+                st.subheader("🏙️ مياه الدولة (City Water)")
+                c_read = st.number_input("قراءة عداد الدولة m³")
+                c_bill = st.number_input("فاتورة مياه الدولة USD")
+                c_fees = st.number_input("رسوم مياه أخرى USD")
+            
+            st.markdown("---")
+            
+            # --- صهاريج المياه في حاوية منفصلة ---
+            with st.container():
+                st.subheader("🚚 صهاريج مياه إضافية (Trucks)")
+                t_read = st.number_input("قراءة عداد الصهاريج (الخاص بالخزان) m³")
+                t_count = st.number_input("عدد الصهاريج الواصلة", step=1)
+                t_size = st.number_input("حجم الصهريج الواحد m³")
+                t_cost = st.number_input("إجمالي تكلفة الصهاريج USD")
+            
+            vals = [c_read, t_count, t_size, t_cost, c_bill, c_fees, t_read]
             s_name = "Water_Data"
 
         elif category == "المولدات":
@@ -80,67 +92,47 @@ if mode == "✍️ إدخال بيانات جديدة":
                 st.subheader(f"⚡ مولد {i}")
                 c1, c2 = st.columns(2)
                 v.extend([c1.number_input(f"kWh {i}", key=f"k{i}"), c2.number_input(f"SMU {i}", key=f"s{i}")])
-            vals = v
-            s_name = "Generators_kwh"
+            vals, s_name = v, "Generators_kwh"
 
         elif category == "كهرباء الدولة":
-            st.subheader("🔌 عدادات EDL")
-            vals = [st.number_input("ليل"), st.number_input("ذروة"), st.number_input("نهار"), st.number_input("تأهيل"), st.number_input("هدر"), st.number_input("اشتراك"), st.number_input("VAT"), st.number_input("الإجمالي")]
-            s_name = "Electricity_Accrual"
+            st.subheader("🔌 عدادات وفاتورة EDL")
+            vals, s_name = [st.number_input("ليل"), st.number_input("ذروة"), st.number_input("نهار"), st.number_input("تأهيل"), st.number_input("هدر"), st.number_input("اشتراك"), st.number_input("VAT"), st.number_input("الإجمالي")], "Electricity_Accrual"
 
         if st.form_submit_button("حفظ وإرسال"):
             if send_to_google(s_name, vals): st.success("✅ تم الحفظ")
             else: st.error("❌ فشل الإرسال")
 
-else: # --- صفحة التقارير الذكية ---
-    st.header("📊 ملخص الاستهلاك والتقارير")
-    
-    # اختيار فترة التقرير
-    col_d1, col_d2 = st.columns(2)
-    start_d = col_d1.date_input("من تاريخ", datetime.now().replace(day=1))
-    end_d = col_d2.date_input("إلى تاريخ", datetime.now())
+else: # --- التقارير (تم إصلاح خطأ الصورة) ---
+    st.header("📊 مراجعة الاستهلاك")
+    col1, col2 = st.columns(2)
+    sd = col1.date_input("من", datetime.now().replace(day=1))
+    ed = col2.date_input("إلى", datetime.now())
 
     df_f = load_data('fuel')
-    if not df_f.empty and len(df_f) >= 2:
-        # فلترة حسب التاريخ
-        mask = (df_f['Timestamp'].dt.date >= start_d) & (df_f['Timestamp'].dt.date <= end_d)
-        df_filtered = df_f.loc[mask]
+    if not df_f.empty and len(df_f) >= 1:
+        # تأمين وجود الأعمدة لتجنب خطأ الصورة (KeyError)
+        for col in ['Main_Tank_cm', 'Receiving_Tank_cm', 'Daily_Tank_cm', 'Boiler_Tank_cm', 'Bought_Liters']:
+            if col not in df_f.columns: df_f[col] = 0
+            
+        mask = (df_f['Timestamp'].dt.date >= sd) & (df_f['Timestamp'].dt.date <= ed)
+        df_filter = df_f.loc[mask]
         
-        if not df_filtered.empty:
-            last = df_filtered.iloc[-1]
-            prev = df_filtered.iloc[0]
+        if not df_filter.empty:
+            last = df_filter.iloc[-1]
+            prev = df_filter.iloc[0]
             
-            # حساب اللترات الحالية
-            l_main = last['Main_Tank_cm'] * CONV['main']
-            l_rec = last['Receiving_Tank_cm'] * CONV['rec']
-            l_daily = last['Daily_Tank_cm'] * CONV['daily']
-            l_boil = last['Boiler_Tank_cm'] * CONV['boil']
-            total_now = l_main + l_rec + l_daily + l_boil
+            cur_l = (last['Main_Tank_cm']*CONV['main']) + (last['Receiving_Tank_cm']*CONV['rec']) + (last['Daily_Tank_cm']*CONV['daily']) + (last['Boiler_Tank_cm']*CONV['boil'])
+            old_l = (prev['Main_Tank_cm']*CONV['main']) + (prev['Receiving_Tank_cm']*CONV['rec']) + (prev['Daily_Tank_cm']*CONV['daily']) + (prev['Boiler_Tank_cm']*CONV['boil'])
             
-            # حساب اللترات السابقة
-            prev_total = (prev['Main_Tank_cm']*CONV['main']) + (prev['Receiving_Tank_cm']*CONV['rec']) + (prev['Daily_Tank_cm']*CONV['daily']) + (prev['Boiler_Tank_cm']*CONV['boil'])
+            bought_sum = df_filter['Bought_Liters'].sum()
+            cons = (old_l + bought_sum) - cur_l
             
-            # المشتريات خلال الفترة
-            total_bought = df_filtered['Bought_Liters'].sum()
+            st.subheader("⛽ ملخص المازوت")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("المخزون الحالي (L)", f"{cur_l:,.0f}")
+            m2.metric("الاستهلاك الصافي", f"{cons:,.0f}")
+            m3.metric("مشتريات الفترة", f"{bought_sum:,.0f}")
             
-            # الاستهلاك الصافي
-            consumption = (prev_total + total_bought) - total_now
-
-            st.subheader("⛽ تقرير المازوت التفصيلي")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("إجمالي المخزون الحالي", f"{total_now:,.1f} L")
-            c2.metric("الاستهلاك في هذه الفترة", f"{consumption:,.1f} L")
-            c3.metric("إجمالي المشتريات", f"{total_bought:,.1f} L")
-
-            st.markdown("---")
-            st.write("📍 **توزيع المخزون اللحظي:**")
-            st.write(f"- خزان الطوارئ: {l_main:,.1f} L")
-            st.write(f"- خزان الاستقبال: {l_rec:,.1f} L")
-            st.write(f"- خزان المولدات: {l_daily:,.1f} L")
-            st.write(f"- خزان البويلر: {l_boil:,.1f} L")
-            
-            # رسم بياني لتطور الاستهلاك
-            df_filtered['Total_Liters'] = (df_filtered['Main_Tank_cm']*CONV['main']) + (df_filtered['Receiving_Tank_cm']*CONV['rec']) + (df_filtered['Daily_Tank_cm']*CONV['daily']) + (df_filtered['Boiler_Tank_cm']*CONV['boil'])
-            st.line_chart(df_filtered.set_index('Timestamp')['Total_Liters'])
+            st.info(f"📍 توزيع الخزانات: طوارئ ({last['Main_Tank_cm']*CONV['main']:,.0f} L) | استقبال ({last['Receiving_Tank_cm']*CONV['rec']:,.0f} L) | يومي ({last['Daily_Tank_cm']*CONV['daily']:,.0f} L) | بويلر ({last['Boiler_Tank_cm']*CONV['boil']:,.0f} L)")
     else:
-        st.warning("يرجى إدخال بيانات جديدة لتفعيل التقارير.")
+        st.info("لا توجد بيانات كافية لعرض التقرير.")
