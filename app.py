@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import io
 
-# --- Page Config & Theme ---
+# --- Page Config ---
 st.set_page_config(page_title="Ramada Plaza Energy System", layout="wide", page_icon="🏨")
 
 # --- Database Connections ---
@@ -19,10 +19,22 @@ def load_data(name):
     try:
         df = pd.read_csv(BASE_URL + GIDS[name])
         df.columns = df.columns.str.strip()
+        # Auto-Correction for Common Column Names to prevent KeyError
+        rename_map = {
+            'Bought Liters': 'Bought_Liters', 'Bought_Ltr': 'Bought_Liters',
+            'Price USD': 'Price_USD', 'Total Price (USD)': 'Price_USD', 'Total Price': 'Price_USD'
+        }
+        df.rename(columns=rename_map, inplace=True)
         if 'Timestamp' in df.columns:
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
         return df
     except: return pd.DataFrame()
+
+def send_to_google(sheet_name, values):
+    try:
+        response = requests.post(f"{SCRIPT_URL}?sheet={sheet_name}", data=json.dumps({"values": values}))
+        return response.status_code == 200
+    except: return False
 
 # --- Auth ---
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
@@ -39,20 +51,24 @@ st.sidebar.title("Ramada Plaza Beirut")
 mode = st.sidebar.radio("Navigation:", ["📊 Performance Dashboard", "✍️ Data Entry"])
 
 # ==========================================
-# PERMANENT DATA ENTRY SECTION
+# SECTION 1: PERMANENT DATA ENTRY
 # ==========================================
 if mode == "✍️ Data Entry":
     st.header("✍️ Record Daily Consumption")
     cat = st.selectbox("Select Category:", ["Diesel (Fuel)", "Water", "Gas (Propane)", "Generators", "EDL (Electricity)"])
     
-    with st.form("main_form", clear_on_submit=True):
+    with st.form("main_entry_form", clear_on_submit=True):
         if cat == "Diesel (Fuel)":
             c1, c2 = st.columns(2)
-            vals = [c1.number_input("Emergency (cm)"), c2.number_input("Receiving (cm)"), 
-                    c1.number_input("Daily (cm)"), c2.number_input("Boiler (cm)"),
-                    st.number_input("Bought Liters"), st.number_input("Total Price (USD)")]
-            s_name = "Fuel_Data"
-        
+            m = c1.number_input("Emergency Tank (cm)")
+            r = c2.number_input("Receiving Tank (cm)")
+            d = c1.number_input("Daily Tank (cm)")
+            b = c2.number_input("Boiler Tank (cm)")
+            st.divider()
+            bl = st.number_input("Bought Liters")
+            bp = st.number_input("Total Purchase Price (USD)")
+            vals, s_name = [m, r, d, b, bl, bp], "Fuel_Data"
+
         elif cat == "Water":
             st.subheader("City Water & Trucks")
             vals = [st.number_input("City Meter m³"), st.number_input("Truck Count"), 
@@ -63,7 +79,7 @@ if mode == "✍️ Data Entry":
 
         elif cat == "Gas (Propane)":
             vals = [st.number_input("Tank %"), st.number_input("Bought Ltr"), 
-                    st.number_input("Cylinders Qty"), st.number_input("Cylinders Cost")]
+                    st.number_input("Cylinders Qty"), st.number_input("Cylinders Price")]
             s_name = "Gas_Data"
 
         elif cat == "Generators":
@@ -79,20 +95,20 @@ if mode == "✍️ Data Entry":
                     st.number_input("VAT"), st.number_input("Total Bill")]
             s_name = "Electricity_Accrual"
 
-        if st.form_submit_button("Submit Records"):
-            # Mock sending logic (Update this with your POST request if needed)
-            st.success("✅ Recorded Successfully")
+        if st.form_submit_button("Submit Data"):
+            if send_to_google(s_name, vals): st.success("✅ Data Recorded")
+            else: st.error("❌ Failed to send")
 
 # ==========================================
-# INTELLIGENT FUEL REPORT SECTION
+# SECTION 2: INTELLIGENT FUEL REPORT
 # ==========================================
 else:
     st.header("📊 Fuel Intelligence & Inventory")
     df = load_data('fuel')
     
-    # Secure columns to prevent KeyError (The fix for your red screens)
-    expected_cols = ['Main_Tank_cm', 'Receiving_Tank_cm', 'Daily_Tank_cm', 'Boiler_Tank_cm', 'Bought_Liters']
-    for col in expected_cols:
+    # Pre-checks for required columns to avoid Red Screen Errors
+    req = ['Main_Tank_cm', 'Receiving_Tank_cm', 'Daily_Tank_cm', 'Boiler_Tank_cm', 'Bought_Liters']
+    for col in req:
         if col not in df.columns: df[col] = 0.0
 
     col1, col2 = st.columns(2)
@@ -100,58 +116,52 @@ else:
     ed = col2.date_input("To Date", datetime.now())
 
     if not df.empty:
-        # Current Stock
+        # 1. Current Stock (Liters)
         last = df.iloc[-1]
-        stocks = {
-            "Emergency": last['Main_Tank_cm']*CONV['main'],
-            "Receiving": last['Receiving_Tank_cm']*CONV['rec'],
-            "Daily": last['Daily_Tank_cm']*CONV['daily'],
-            "Boiler": last['Boiler_Tank_cm']*CONV['boil']
-        }
-        
-        st.subheader("📍 Current Stock (Liters)")
-        m = st.columns(5)
-        m[0].metric("Emergency", f"{stocks['Emergency']:,.0f} L")
-        m[1].metric("Receiving", f"{stocks['Receiving']:,.0f} L")
-        m[2].metric("Daily", f"{stocks['Daily']:,.0f} L")
-        m[3].metric("Boiler", f"{stocks['Boiler']:,.0f} L")
-        m[4].metric("TOTAL", f"{sum(stocks.values()):,.0f} L")
+        l_main, l_rec = last['Main_Tank_cm']*CONV['main'], last['Receiving_Tank_cm']*CONV['rec']
+        l_daily, l_boil = last['Daily_Tank_cm']*CONV['daily'], last['Boiler_Tank_cm']*CONV['boil']
+        total_now = l_main + l_rec + l_daily + l_boil
 
-        # Consumption Analysis
+        st.subheader("📍 Current Inventory Levels")
+        m = st.columns(5)
+        m[0].metric("Emergency", f"{l_main:,.0f} L")
+        m[1].metric("Receiving", f"{l_rec:,.0f} L")
+        m[2].metric("Daily", f"{l_daily:,.0f} L")
+        m[3].metric("Boiler", f"{l_boil:,.0f} L")
+        m[4].metric("TOTAL STOCK", f"{total_now:,.0f} L")
+
+        # 2. Consumption Last Update (Yesterday)
         if len(df) >= 2:
             prev = df.iloc[-2]
             st.divider()
-            st.subheader("⏱️ Consumption - Last Update vs Previous")
+            st.subheader("⏱️ Consumption in Last Update")
             c = st.columns(4)
             c[0].info(f"Emergency: {max(0, (prev['Main_Tank_cm']-last['Main_Tank_cm'])*CONV['main']):,.1f} L")
             c[1].info(f"Receiving: {max(0, (prev['Receiving_Tank_cm']-last['Receiving_Tank_cm'])*CONV['rec']):,.1f} L")
             c[2].info(f"Daily: {max(0, (prev['Daily_Tank_cm']-last['Daily_Tank_cm'])*CONV['daily']):,.1f} L")
             c[3].info(f"Boiler: {max(0, (prev['Boiler_Tank_cm']-last['Boiler_Tank_cm'])*CONV['boil']):,.1f} L")
 
-        # Period Filter & Consumption
+        # 3. Period Consumption Logic
         mask = (df['Timestamp'].dt.date >= sd) & (df['Timestamp'].dt.date <= ed)
         f_filt = df.loc[mask]
         
         if not f_filt.empty:
             st.divider()
-            # Calculate total burned in period
-            start_total = (f_filt.iloc[0]['Main_Tank_cm']*CONV['main']) + (f_filt.iloc[0]['Receiving_Tank_cm']*CONV['rec']) + (f_filt.iloc[0]['Daily_Tank_cm']*CONV['daily']) + (f_filt.iloc[0]['Boiler_Tank_cm']*CONV['boil'])
-            end_total = sum(stocks.values())
-            period_cons = (start_total + f_filt['Bought_Liters'].sum()) - end_total
-            
-            st.subheader(f"📅 Total Burned ({sd} to {ed})")
+            start_vol = (f_filt.iloc[0]['Main_Tank_cm']*CONV['main']) + (f_filt.iloc[0]['Receiving_Tank_cm']*CONV['rec']) + (f_filt.iloc[0]['Daily_Tank_cm']*CONV['daily']) + (f_filt.iloc[0]['Boiler_Tank_cm']*CONV['boil'])
+            period_cons = (start_vol + f_filt['Bought_Liters'].sum()) - total_now
+            st.subheader(f"📅 Period Summary ({sd} to {ed})")
             st.warning(f"Total Fuel Consumed in this period: **{period_cons:,.1f} Liters**")
 
-            # Chart (4 Tanks)
+            # 4. Comprehensive Chart (4 Tanks)
             fig = go.Figure()
-            colors = ['#FF4B4B', '#1C83E1', '#00C781', '#FFAA00']
-            for i, tank in enumerate(['Main_Tank_cm', 'Receiving_Tank_cm', 'Daily_Tank_cm', 'Boiler_Tank_cm']):
-                name = tank.split('_')[0]
-                fig.add_trace(go.Scatter(x=f_filt['Timestamp'], y=f_filt[tank]*CONV[name.lower()[:4]], name=name, line=dict(color=colors[i], width=2)))
-            fig.update_layout(title="Liters Analysis (All 4 Tanks)", hovermode="x unified")
+            tanks = {'Main_Tank_cm': 'Emergency', 'Receiving_Tank_cm': 'Receiving', 'Daily_Tank_cm': 'Daily', 'Boiler_Tank_cm': 'Boiler'}
+            for col, name in tanks.items():
+                conv_key = col.lower().split('_')[0][:4] if 'boiler' not in col else 'boil'
+                fig.add_trace(go.Scatter(x=f_filt['Timestamp'], y=f_filt[col]*CONV.get(conv_key, 1), name=name))
+            fig.update_layout(title="Multi-Tank Inventory Trend (Liters)", hovermode="x unified")
             st.plotly_chart(fig, use_container_width=True)
 
-            # Export
+            # 5. Export Button
             buffer = io.BytesIO()
             f_filt.to_excel(buffer, index=False)
-            st.download_button("📥 Export Diesel Report to Excel", buffer.getvalue(), "Diesel_Report.xlsx")
+            st.download_button("📥 Export Diesel Report to Excel", buffer.getvalue(), "Diesel_Report.xlsx", "application/vnd.ms-excel")
