@@ -5,8 +5,9 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- 1. الإعدادات والروابط (ثابتة) ---
-st.set_page_config(page_title="Ramada Management", layout="wide")
+# --- 1. الإعدادات والروابط ---
+st.set_page_config(page_title="Ramada Management System", layout="wide", page_icon="🏨")
+
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycby5wzhAdn99OikQFbu8gx2MsNPFWYV0gEE27UxgZPpGJGIQufxPUIe2hEI0tmznG4BF/exec"
 SHEET_ID = "1U0zYOYaiUNMd__XGHuF72wIO6JixM5IlaXN-OcIlZH0"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid="
@@ -18,7 +19,8 @@ def load_data(name):
     try:
         df = pd.read_csv(BASE_URL + GIDS[name])
         df.columns = df.columns.str.strip()
-        if 'Timestamp' in df.columns: df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+        if 'Timestamp' in df.columns:
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
         return df
     except: return pd.DataFrame()
 
@@ -34,82 +36,108 @@ if "authenticated" not in st.session_state: st.session_state.authenticated = Fal
 if not st.session_state.authenticated:
     st.title("🔐 Login")
     if st.text_input("Password", type="password") == "AHLP2026":
-        if st.button("Login"): st.session_state.authenticated = True; st.rerun()
+        if st.button("Login"):
+            st.session_state.authenticated = True
+            st.rerun()
     st.stop()
 
-# --- 3. التنقل ---
-mode = st.sidebar.radio("القائمة:", ["📊 التقارير", "✍️ إدخال البيانات"])
+# --- 3. القائمة الجانبية ---
+mode = st.sidebar.radio("القائمة الرئيسية:", ["📊 التقارير التشغيلية", "✍️ إدخال البيانات اليومية"])
 
-if mode == "✍️ إدخال البيانات":
-    st.header("✍️ تسجيل البيانات")
-    cat = st.selectbox("الفئة:", ["المازوت (Fuel)", "المياه (Water)", "الغاز", "الكهرباء", "المولدات"])
+# ==========================================
+# ✍️ قسم إدخال البيانات (تمت إعادة كافة الصفحات)
+# ==========================================
+if mode == "✍️ إدخال البيانات اليومية":
+    st.header("✍️ تسجيل البيانات اليومية")
+    category = st.selectbox("الفئة:", ["المازوت (Fuel)", "المياه (Water)", "الغاز (Gas)", "كهرباء الدولة (EDL)", "المولدات (Generators)"])
+    
     with st.form("entry_form", clear_on_submit=True):
-        if cat == "المازوت (Fuel)":
+        if category == "المازوت (Fuel)":
             c1, c2 = st.columns(2)
-            vals = [c1.number_input("Emergency (cm)"), c2.number_input("Receiving (cm)"), c1.number_input("Daily (cm)"), c2.number_input("Boiler (cm)"), st.number_input("Bought Liters"), st.number_input("Total Price")]
+            vals = [c1.number_input("Emergency (cm)"), c2.number_input("Receiving (cm)"), 
+                    c1.number_input("Daily (cm)"), c2.number_input("Boiler (cm)"),
+                    st.number_input("Bought Liters (كمية الشراء)"), st.number_input("Price USD")]
             s_name = "Fuel_Data"
-        elif cat == "المياه (Water)":
+
+        elif category == "المياه (Water)":
             c1, c2 = st.columns(2)
             tc, ts, tp = c1.number_input("Extra Truck Count", step=1), c1.number_input("Truck Size M3", value=20.0), c1.number_input("Truck Cost USD")
             cw, cb, of = c2.number_input("City Water Reading"), c2.number_input("City Bill USD"), c2.number_input("Other Fees")
             vals, s_name = [cw, tc, ts, tp, cb, of], "Water_Data"
-        else: # (باقي الفئات تبقى دون مساس)
-            vals, s_name = [0,0,0,0], ""
-        
-        if st.form_submit_button("🚀 Submit"):
-            if send_to_google(s_name, vals): st.success("✅ Done")
-            else: st.error("❌ Error")
 
+        elif category == "الغاز (Gas)":
+            vals, s_name = [st.number_input("النسبة المئوية في الخزان %"), st.number_input("كمية الشراء (لتر)"), 0, 0], "Gas_Data"
+
+        elif category == "كهرباء الدولة (EDL)":
+            vals, s_name = [st.number_input("Night"), st.number_input("Peak"), st.number_input("Day"), st.number_input("Total Bill USD")], "Electricity_Accrual"
+
+        elif category == "المولدات (Generators)":
+            v = []
+            for i in range(1, 4):
+                col1, col2 = st.columns(2)
+                v.extend([col1.number_input(f"kWh G{i}"), col2.number_input(f"SMU G{i}")])
+            vals, s_name = v, "Generators_kwh"
+
+        if st.form_submit_button("🚀 إرسال البيانات"):
+            if send_to_google(s_name, vals): st.success("✅ تم حفظ البيانات بنجاح")
+            else: st.error("❌ فشل في الإرسال")
+
+# ==========================================
+# 📊 قسم التقارير (إصلاح المازوت وتثبيت المياه)
+# ==========================================
 else:
-    report = st.sidebar.selectbox("التقرير:", ["Diesel Analysis", "Water Analysis"])
-    sd = st.sidebar.date_input("From", datetime.now()-timedelta(7))
-    ed = st.sidebar.date_input("To", datetime.now())
+    report = st.sidebar.selectbox("نوع التقرير:", ["تقرير المازوت", "تقرير المياه (المطور)"])
+    sd = st.sidebar.date_input("من تاريخ", datetime.now()-timedelta(7))
+    ed = st.sidebar.date_input("إلى تاريخ", datetime.now())
 
-    if report == "Diesel Analysis":
+    if report == "تقرير المازوت":
         df = load_data('fuel')
         if not df.empty:
             df_filt = df[(df['Timestamp'].dt.date >= sd) & (df['Timestamp'].dt.date <= ed)]
             if not df_filt.empty:
-                last, prev = df_filt.iloc[-1], df.iloc[-2] if len(df)>1 else df.iloc[-1]
-                st.subheader("📉 الاستهلاك اللحظي (Liters)")
-                c = st.columns(4)
-                for i, (n, f) in enumerate(zip(['Emergency','Receiving','Daily','Boiler'], [107.22, 37.65, 31.26, 37.65])):
-                    diff = max(0, float(prev.iloc[i+1]) - float(last.iloc[i+1]))
-                    c[i].metric(f"{n} spent", f"{diff*f:,.1f} L")
+                last = df_filt.iloc[-1]
                 
+                # --- الاستهلاك منذ آخر تحديث ---
+                if len(df) >= 2:
+                    st.subheader("📉 الاستهلاك منذ آخر تحديث (باللتر)")
+                    prev = df.iloc[-2]
+                    c = st.columns(4)
+                    def calc(p, c, f): return max(0, float(p) - float(c)) * f
+                    c[0].metric("Emergency spent", f"{calc(prev.iloc[1], last.iloc[1], CONV['main']):,.1f} L")
+                    c[1].metric("Receiving spent", f"{calc(prev.iloc[2], last.iloc[2], CONV['rec']):,.1f} L")
+                    c[2].metric("Daily spent", f"{calc(prev.iloc[3], last.iloc[3], CONV['daily']):,.1f} L")
+                    c[3].metric("Boiler spent", f"{calc(prev.iloc[4], last.iloc[4], CONV['boil']):,.1f} L")
+
+                # --- إعادة خطوط الكمية في الرسم البياني ---
                 st.divider()
-                st.subheader("📈 حركة المخزون")
+                st.subheader("📈 مستويات المخزون في الخزانات الأربعة")
                 fig = go.Figure()
-                for i, (n, col, f) in enumerate(zip(['Emergency','Receiving','Daily','Boiler'],['red','blue','green','orange'], [107.22, 37.65, 31.26, 37.65])):
-                    fig.add_trace(go.Scatter(x=df_filt['Timestamp'], y=df_filt.iloc[:, i+1]*f, name=n, line=dict(color=col)))
+                clrs = ['red', 'blue', 'green', 'orange']
+                lbls = ['Emergency', 'Receiving', 'Daily', 'Boiler']
+                fcts = [CONV['main'], CONV['rec'], CONV['daily'], CONV['boil']]
+                for i in range(4):
+                    fig.add_trace(go.Scatter(x=df_filt['Timestamp'], y=df_filt.iloc[:, i+1]*fcts[i], name=lbls[i], line=dict(color=clrs[i], width=2)))
+                fig.update_layout(hovermode="x unified")
                 st.plotly_chart(fig, use_container_width=True)
 
-    elif report == "Water Analysis":
-        st.header("💧 Water Analysis Report")
+    elif report == "تقرير المياه (المطور)":
         dfw = load_data('water')
         if not dfw.empty:
             dff = dfw[(dfw['Timestamp'].dt.date >= sd) & (dfw['Timestamp'].dt.date <= ed)]
             if not dff.empty:
-                # --- التعديل الجوهري للحساب الصحيح (الضرب لكل سطر) ---
+                st.header("💧 نتائج تحليل المياه")
                 city_m3 = max(0, dff.iloc[-1, 1] - dff.iloc[0, 1])
-                truck_count = dff.iloc[:, 2].sum()
-                # حساب الأمتار: كل سطر (عدد الصهاريج × حجمها)
                 truck_m3 = (dff.iloc[:, 2] * dff.iloc[:, 3]).sum() 
                 truck_cost = dff.iloc[:, 4].sum()
                 city_cost = dff.iloc[:, 5].sum() + dff.iloc[:, 6].sum()
 
-                # العرض المطلوب
-                st.subheader(f"Summary: {sd} to {ed}")
                 c1, c2, c3 = st.columns(3)
-                c1.metric("City Water m³", f"{city_m3:,.1f}")
-                c2.metric("Truck Water m³", f"{truck_m3:,.1f}") # سيظهر 114 الآن
-                c3.metric("Total Water m³", f"{(city_m3 + truck_m3):,.1f}")
+                c1.metric("مياه الدولة m³", f"{city_m3:,.1f}")
+                c2.metric("مياه الصهاريج m³", f"{truck_m3:,.1f}")
+                c3.metric("المجموع العام m³", f"{(city_m3 + truck_m3):,.1f}")
                 
                 k1, k2, k3, k4 = st.columns(4)
-                k1.metric("City Cost", f"${city_cost:,.2f}")
-                k2.metric("Trucks Count", f"{truck_count:,.0f}")
-                k3.metric("Total Truck Cost", f"${truck_cost:,.2f}") # سيظهر 466.2 الآن
-                k4.metric("TOTAL COST", f"${(city_cost + truck_cost):,.2f}")
-                
-                csv = dff.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download Report (CSV)", csv, "water_report.csv", "text/csv")
+                k1.metric("تكلفة الدولة", f"${city_cost:,.2f}")
+                k2.metric("عدد الصهاريج", f"{dff.iloc[:, 2].sum():,.0f}")
+                k3.metric("تكلفة الصهاريج", f"${truck_cost:,.2f}")
+                k4.metric("الإجمالي USD", f"${(city_cost + truck_cost):,.2f}")
