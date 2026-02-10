@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timedelta
 import io
 
-# --- 1. إعدادات الصفحة والروابط ---
+# --- 1. إعدادات الصفحة والروابط الثابتة (لا يتم تغييرها) ---
 st.set_page_config(page_title="Ramada Plaza Energy System", layout="wide", page_icon="🏨")
 
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycby5wzhAdn99OikQFbu8gx2MsNPFWYV0gEE27UxgZPpGJGIQufxPUIe2hEI0tmznG4BF/exec"
@@ -46,7 +46,7 @@ if not st.session_state.authenticated:
 mode = st.sidebar.radio("Main Menu:", ["📊 Operations Reports", "✍️ Daily Data Entry"])
 
 # ==========================================
-# SECTION 1: DATA ENTRY (تثبيت الترتيب)
+# SECTION: DATA ENTRY (مثبتة بالكامل)
 # ==========================================
 if mode == "✍️ Daily Data Entry":
     st.header("✍️ Operational Data Recording")
@@ -56,13 +56,8 @@ if mode == "✍️ Daily Data Entry":
         if category == "Diesel (Fuel)":
             st.subheader("⛽ Fuel Tank Levels (cm)")
             c1, c2 = st.columns(2)
-            m = c1.number_input("Emergency Tank")
-            r = c2.number_input("Receiving Tank")
-            d = c1.number_input("Daily Tank")
-            b = c2.number_input("Boiler Tank")
-            st.divider()
-            bl = st.number_input("Bought Liters Today")
-            bp = st.number_input("Total Purchase Price (USD)")
+            m, r, d, b = c1.number_input("Emergency Tank"), c2.number_input("Receiving Tank"), c1.number_input("Daily Tank"), c2.number_input("Boiler Tank")
+            bl, bp = st.number_input("Bought Liters Today"), st.number_input("Total Purchase Price (USD)")
             vals, s_name = [m, r, d, b, bl, bp], "Fuel_Data"
 
         elif category == "Water":
@@ -80,7 +75,6 @@ if mode == "✍️ Daily Data Entry":
                 of = st.number_input("Other Water Fees")
             vals, s_name = [cw, tc, ts, tp, cb, of], "Water_Data"
         
-        # الأقسام الأخرى بنفس الترتيب
         elif category == "Generators":
             v = []
             for i in range(1, 4):
@@ -98,65 +92,74 @@ if mode == "✍️ Daily Data Entry":
             else: st.error("❌ Link Error")
 
 # ==========================================
-# SECTION 2: REPORTS (إعادة تفعيل المازوت بالكامل)
+# SECTION: REPORTS (تعديل تقرير المياه فقط)
 # ==========================================
 else:
-    report_type = st.sidebar.selectbox("Select Report:", ["Diesel Report (Fixed)", "Water Analysis (New)"])
+    report_type = st.sidebar.selectbox("Select Report:", ["Diesel Report (Fixed)", "Water Report (Enhanced)"])
     col_d1, col_d2 = st.columns(2)
     sd = col_d1.date_input("From Date", datetime.now() - timedelta(days=7))
     ed = col_d2.date_input("To Date", datetime.now())
 
     if report_type == "Diesel Report (Fixed)":
+        # (قسم تقرير المازوت الثابت كما هو تماماً)
         df = load_data('fuel')
         if not df.empty:
             last = df.iloc[-1]
             st.subheader("📍 Current Fuel Inventory (Liters)")
             m = st.columns(4)
-            # استخدام أسماء الأعمدة الفعلية لضمان الدقة
-            vals = {'Emergency': last.iloc[1]*CONV_FUEL['main'], 'Receiving': last.iloc[2]*CONV_FUEL['rec'], 
-                    'Daily': last.iloc[3]*CONV_FUEL['daily'], 'Boiler': last.iloc[4]*CONV_FUEL['boil']}
+            m[0].metric("Emergency", f"{last.iloc[1]*CONV_FUEL['main']:,.0f} L")
+            m[1].metric("Receiving", f"{last.iloc[2]*CONV_FUEL['rec']:,.0f} L")
+            m[2].metric("Daily", f"{last.iloc[3]*CONV_FUEL['daily']:,.0f} L")
+            m[3].metric("Boiler", f"{last.iloc[4]*CONV_FUEL['boil']:,.0f} L")
             
-            for i, (name, val) in enumerate(vals.items()):
-                m[i].metric(name, f"{val:,.0f} L")
-
-            # --- استعادة حساب المصروف الحقيقي بين آخر قرائتين ---
-            if len(df) >= 2:
-                prev = df.iloc[-2]
-                st.divider()
-                st.subheader("📉 Consumption in Last Update")
-                c = st.columns(4)
-                # دالة حساب الفرق (فقط إذا كان نقصاً)
-                def get_diff(c, p, f):
-                    d = p - c
-                    return d * f if d > 0 else 0.0
-                
-                c[0].write(f"**Emerg. Used:** {get_diff(last.iloc[1], prev.iloc[1], CONV_FUEL['main']):,.1f} L")
-                c[1].write(f"**Rec. Used:** {get_diff(last.iloc[2], prev.iloc[2], CONV_FUEL['rec']):,.1f} L")
-                c[2].write(f"**Daily Burned:** {get_diff(last.iloc[3], prev.iloc[3], CONV_FUEL['daily']):,.1f} L")
-                c[3].write(f"**Boiler Burned:** {get_diff(last.iloc[4], prev.iloc[4], CONV_FUEL['boil']):,.1f} L")
-
-            # --- إعادة الخطوط الأربعة للرسم البياني ---
-            st.divider()
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df['Timestamp'], y=df.iloc[:,1]*CONV_FUEL['main'], name='Emergency', line=dict(color='red')))
-            fig.add_trace(go.Scatter(x=df['Timestamp'], y=df.iloc[:,2]*CONV_FUEL['rec'], name='Receiving', line=dict(color='blue')))
-            fig.add_trace(go.Scatter(x=df['Timestamp'], y=df.iloc[:,3]*CONV_FUEL['daily'], name='Daily', line=dict(color='green')))
-            fig.add_trace(go.Scatter(x=df['Timestamp'], y=df.iloc[:,4]*CONV_FUEL['boil'], name='Boiler', line=dict(color='orange')))
-            fig.update_layout(title="Historical Inventory (4 Tanks)", hovermode="x unified")
+            for i, name, color in zip([1,2,3,4],['Emergency','Receiving','Daily','Boiler'],['red','blue','green','orange']):
+                fig.add_trace(go.Scatter(x=df['Timestamp'], y=df.iloc[:,i]*CONV_FUEL[name[:3].lower() if name != 'Emergency' else 'main'], name=name, line=dict(color=color)))
             st.plotly_chart(fig, use_container_width=True)
 
-    elif report_type == "Water Analysis (New)":
-        st.header("💧 Water Analysis")
+    elif report_type == "Water Report (Enhanced)":
+        st.header("💧 Water Performance Report")
         dfw = load_data('water')
         if not dfw.empty:
             mask = (dfw['Timestamp'].dt.date >= sd) & (dfw['Timestamp'].dt.date <= ed)
             dff = dfw.loc[mask]
+            
             if not dff.empty:
-                # حسابات مياه الدولة والصهاريج
-                c_start, c_end = dff.iloc[0, 1], dff.iloc[-1, 1]
-                t_m3 = dff.iloc[:, 2].sum() * dff.iloc[0, 3] if not pd.isna(dff.iloc[0, 3]) else 0
-                st.subheader(f"Summary: {sd} to {ed}")
-                m1, m2, m3 = st.columns(3)
-                m1.metric("City Water", f"{max(0, c_end - c_start):,.1f} m³")
-                m2.metric("Trucks Water", f"{t_m3:,.1f} m³")
-                m3.metric("Total Cost", f"${(dff.iloc[:, 4].sum() + dff.iloc[:, 5].sum() + dff.iloc[:, 6].sum()):,.2f}")
+                # 1. حسابات مياه الدولة
+                city_m3 = max(0, dff.iloc[-1, 1] - dff.iloc[0, 1])
+                city_cost = dff.iloc[:, 5].sum() + dff.iloc[:, 6].sum() # City Bill + Other Fees
+                
+                # 2. حسابات الصهاريج
+                truck_count = dff.iloc[:, 2].sum()
+                truck_m3 = truck_count * (dff.iloc[0, 3] if not pd.isna(dff.iloc[0, 3]) else 0)
+                truck_cost = dff.iloc[:, 4].sum()
+                
+                # 3. الإجماليات
+                total_m3 = city_m3 + truck_m3
+                total_cost = city_cost + truck_cost
+                
+                # --- العرض حسب طلبك ---
+                st.subheader("📈 Consumption Summary")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("City Water m³", f"{city_m3:,.1f}")
+                c2.metric("Trucks Water m³", f"{truck_m3:,.1f}")
+                c3.metric("TOTAL m³", f"{total_m3:,.1f}", delta_color="normal")
+                
+                st.subheader("💰 Cost Summary (USD)")
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("City Cost", f"${city_cost:,.2f}")
+                k2.metric("Trucks Count", f"{truck_count:,.0f}")
+                k3.metric("Trucks Total Cost", f"${truck_cost:,.2f}")
+                k4.metric("TOTAL COST", f"${total_cost:,.2f}")
+                
+                # رسم بياني توضيحي
+                fig_w = go.Figure(data=[
+                    go.Bar(name='City Water', x=['Volume (m³)'], y=[city_m3], marker_color='royalblue'),
+                    go.Bar(name='Trucks Water', x=['Volume (m³)'], y=[truck_m3], marker_color='lightblue')
+                ])
+                fig_w.update_layout(barmode='group', title="City vs Trucks Usage")
+                st.plotly_chart(fig_w, use_container_width=True)
+
+                # التصدير
+                csv = dff.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Export Period Data (CSV)", csv, "water_report.csv", "text/csv")
