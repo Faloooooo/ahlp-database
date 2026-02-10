@@ -5,7 +5,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# --- 1. الإعدادات الأساسية ---
+# --- 1. الإعدادات والروابط ---
 st.set_page_config(page_title="Ramada Management", layout="wide")
 
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycby5wzhAdn99OikQFbu8gx2MsNPFWYV0gEE27UxgZPpGJGIQufxPUIe2hEI0tmznG4BF/exec"
@@ -35,39 +35,51 @@ def send_to_google(sheet_name, values):
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if not st.session_state.authenticated:
     st.title("🔐 Login")
-    if st.text_input("Password", type="password") == "AHLP2026":
-        if st.button("Login"): st.session_state.authenticated = True; st.rerun()
+    pwd = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if pwd == "AHLP2026":
+            st.session_state.authenticated = True
+            st.rerun()
     st.stop()
 
 # --- 3. واجهة التحكم ---
-mode = st.sidebar.radio("Main Menu:", ["📊 Reports", "✍️ Data Entry"])
+mode = st.sidebar.radio("القائمة الرئيسية:", ["📊 التقارير", "✍️ إدخال البيانات"])
 
-if mode == "✍️ Data Entry":
-    st.header("✍️ Record Daily Data")
-    cat = st.selectbox("Category:", ["Diesel (Fuel)", "Water"])
+if mode == "✍️ إدخال البيانات":
+    st.header("✍️ تسجيل البيانات اليومية")
+    cat = st.selectbox("الفئة:", ["المازوت (Fuel)", "المياه (Water)"])
     with st.form("entry_form", clear_on_submit=True):
-        if cat == "Diesel (Fuel)":
+        if cat == "المازوت (Fuel)":
             c1, c2 = st.columns(2)
-            m, r = c1.number_input("Emergency (cm)"), c2.number_input("Receiving (cm)")
-            d, b = c1.number_input("Daily (cm)"), c2.number_input("Boiler (cm)")
-            bl, bp = st.number_input("Bought Liters"), st.number_input("Total Price USD")
+            m = c1.number_input("Emergency (cm)", min_value=0.0)
+            r = c2.number_input("Receiving (cm)", min_value=0.0)
+            d = c1.number_input("Daily (cm)", min_value=0.0)
+            b = c2.number_input("Boiler (cm)", min_value=0.0)
+            bl = st.number_input("Bought Liters (كمية الشراء باللتر)")
+            bp = st.number_input("Total Price USD (السعر الإجمالي)")
             vals, s_name = [m, r, d, b, bl, bp], "Fuel_Data"
         else:
-            c1, c2 = st.columns(2)
-            tc, ts, tp = c1.number_input("Truck Count"), c1.number_input("Truck Size M3"), c1.number_input("Truck Cost")
-            cw, cb, of = c2.number_input("City Meter"), c2.number_input("City Bill"), c2.number_input("Other Fees")
+            col1, col2 = st.columns(2)
+            with col1:
+                tc = st.number_input("Truck Count (عدد الصهاريج)", step=1)
+                ts = st.number_input("Truck Size M3 (حجم الصهريج)", value=20.0)
+                tp = st.number_input("Truck Cost (سعر الصهاريج)")
+            with col2:
+                cw = st.number_input("City Meter (عداد الدولة)")
+                cb = st.number_input("City Bill (فاتورة الدولة)")
+                of = st.number_input("Other Fees (رسوم أخرى)")
             vals, s_name = [cw, tc, ts, tp, cb, of], "Water_Data"
         
-        if st.form_submit_button("Submit"):
-            if send_to_google(s_name, vals): st.success("✅ Success")
-            else: st.error("❌ Failed")
+        if st.form_submit_button("🚀 إرسال البيانات"):
+            if send_to_google(s_name, vals): st.success("✅ تم حفظ البيانات بنجاح")
+            else: st.error("❌ فشل الاتصال بقاعدة البيانات")
 
 else:
-    report = st.sidebar.selectbox("Choose Report:", ["Diesel Report", "Water Analysis"])
+    report = st.sidebar.selectbox("نوع التقرير:", ["تقرير المازوت", "تحليل المياه"])
     c_d1, c_d2 = st.columns(2)
-    sd, ed = c_d1.date_input("From", datetime.now()-timedelta(7)), c_d2.date_input("To", datetime.now())
+    sd, ed = c_d1.date_input("من تاريخ", datetime.now()-timedelta(7)), c_d2.date_input("إلى تاريخ", datetime.now())
 
-    if report == "Diesel Report":
+    if report == "تقرير المازوت":
         df = load_data('fuel')
         if not df.empty:
             df_filt = df[(df['Timestamp'].dt.date >= sd) & (df['Timestamp'].dt.date <= ed)]
@@ -76,33 +88,10 @@ else:
                 
                 # --- القسم المطلوب: كم صرفت من آخر بيانات ---
                 if len(df) >= 2:
-                    st.subheader("📉 Consumption (Liters) - Last Update")
+                    st.subheader("📉 الاستهلاك منذ آخر تحديث (باللتر)")
                     prev = df.iloc[-2]
                     c = st.columns(4)
                     
                     def get_usage(curr, pre, factor):
-                        diff = pre - curr
-                        return diff * factor if diff > 0 else 0.0
-
-                    # إصلاح الخطأ البرمجي في f-string
-                    c[0].metric("Emergency spent", f"{get_usage(last.iloc[1], prev.iloc[1], CONV['main']):,.1f} L")
-                    c[1].metric("Receiving spent", f"{get_usage(last.iloc[2], prev.iloc[2], CONV['rec']):,.1f} L")
-                    c[2].metric("Daily spent", f"{get_usage(last.iloc[3], prev.iloc[3], CONV['daily']):,.1f} L")
-                    c[3].metric("Boiler spent", f"{get_usage(last.iloc[4], prev.iloc[4], CONV['boil']):,.1f} L")
-
-                # --- المخزون الحالي ---
-                st.divider()
-                st.subheader("📍 Current Stock")
-                m = st.columns(4)
-                m[0].metric("Emergency", f"{last.iloc[1]*CONV['main']:,.0f} L")
-                m[1].metric("Receiving", f"{last.iloc[2]*CONV['rec']:,.0f} L")
-                m[2].metric("Daily", f"{last.iloc[3]*CONV['daily']:,.0f} L")
-                m[3].metric("Boiler", f"{last.iloc[4]*CONV['boil']:,.0f} L")
-
-                # --- الرسم البياني (إصلاح KeyError) ---
-                fig = go.Figure()
-                clrs = ['red', 'blue', 'green', 'orange']
-                lbls = ['Emergency', 'Receiving', 'Daily', 'Boiler']
-                fcts = [CONV['main'], CONV['rec'], CONV['daily'], CONV['boil']]
-                for i in range(4):
-                    fig.add_trace(go.Scatter(x=df_filt['Timestamp'], y=df_filt.iloc[:, i+1]*f
+                        diff = float(pre) - float(curr)
+                        return diff * factor if diff
